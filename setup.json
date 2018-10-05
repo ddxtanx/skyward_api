@@ -1,0 +1,23 @@
+{
+    "name": "skyward_api",
+    "version": "1.1.0",
+    "author": "Garrett Credi",
+    "author_email": "gcc@ameritech.net",
+    "description": "Python API for Skyward",
+    "long_description_content_type": "text/markdown",
+    "url": "https://github.com/ddxtanx/skyward_api",
+    "classifiers": [
+        "Development Status :: 5 - Production/Stable",
+        "Environment :: Console",
+        "Intended Audience :: Developers",
+        "Natural Language :: English",
+        "Programming Language :: Python :: 3.6",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+        "Topic :: Utilities"
+    ],
+    "install_requires": [
+        "requests_html",
+        "mypy"
+    ]
+}

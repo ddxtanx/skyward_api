@@ -1,0 +1,4 @@
+build
+dist
+skyward_api.egg-info
+Pipfile*
