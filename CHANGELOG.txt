@@ -2,3 +2,13 @@
     First Push
 1.1.0-
     Add get_grades_text to Skyward_API
+1.1.1-
+    Add docstrings
+1.2.0-
+    Add construction method with just request data and require login.
+1.2.1-
+    Bugfixes with get_session_params
+1.2.2-
+    Add errors for session destruction.
+1.2.3-
+    Add another error for session destruction.

@@ -120,7 +120,7 @@ class Assignment():
         if not isinstance(other, self.__class__):
             return False
         return (self >= other) and self != other
-        
+
     def __str__(self) -> str:
         return "({0}) {1} {2}".format(
             self.date,
@@ -178,16 +178,13 @@ class SkywardAPI():
         Login parameters.
 
     """
-    def __init__(self, usern: str, passw: str, service: str) -> None:
+    def __init__(self, service: str) -> None:
         self.tries = 0
-        self.username = usern
-        self.password = passw
         self.base_url = "https://skyward.iscorp.com/scripts/wsisa.dll/WService={0}".format(service)
         self.login_url = self.base_url + "/skyporthttp.w"
-        data = self.login()
-        self.login_data = data
+        self.session_params = {}
 
-    def login(self) -> Dict[str, Any]:
+    def login(self, username: str, password: str) -> Dict[str, Any]:
         """Logs into Skyward and retreives session data.
 
         Returns
@@ -204,9 +201,9 @@ class SkywardAPI():
 
         """
         params = skyward_req_conf
-        params["codeValue"] = self.username
-        params["login"] = self.username
-        params["password"] = self.password
+        params["codeValue"] = username
+        params["login"] = username
+        params["password"] = password
         req = session.post(self.login_url, data=params)
         text = req.text
         if "Invalid" in text:
@@ -214,9 +211,20 @@ class SkywardAPI():
         if text != "":
             return parse_login_text(self.base_url, text)
         elif self.tries < 5:
-            return self.login()
+            return self.login(username, password)
         else:
             raise RuntimeError("For some reason, Skyward is returning nothing at login. Sorry try again!")
+
+    def setup(self, username: str, password: str) -> None:
+        data = self.login(username, password)
+        self.login_data = data
+        self.session_params = self.get_session_params()
+
+    @staticmethod
+    def from_session_data(service: str, sky_data: Dict[str, str]) -> "SkywardAPI":
+        api = SkywardAPI(service)
+        api.session_params = sky_data
+        return api
 
     def get_session_params(self) -> Dict[str, str]:
         """Gets session data from Skyward for login.
@@ -231,10 +239,12 @@ class SkywardAPI():
 
         req2 = session.post(ldata["new_url"], data=ldata["params"])
         page = req2.html
+        try:
+            sessid = page.find("#sessionid", first=True).attrs["value"]
 
-        sessid = page.find("#sessionid", first=True).attrs["value"]
-
-        encses = page.find("#encses", first=True).attrs["value"]
+            encses = page.find("#encses", first=True).attrs["value"]
+        except AttributeError:
+            return self.get_session_params()
 
         return {
             "sessid": sessid,
@@ -259,7 +269,7 @@ class SkywardAPI():
         """
         grades = {} # type: Dict[str, List[Assignment]]
 
-        sessionp = self.get_session_params()
+        sessionp = self.session_params
         refresh_id = page.find("#reloadValue", first=True).attrs["value"]
         grade_buttons = page.find("#showGradeInfo")
 
@@ -328,7 +338,7 @@ class SkywardAPI():
             text_split = text[start_split : end_split + 1]
 
             doc = HTML(html=text_split)
-            
+
             class_name = doc.find(".gb_heading", first=True).text
             class_name = class_name.replace("\xa0", " ")
             grades[class_name] = []
@@ -448,9 +458,14 @@ class SkywardAPI():
         Dict[str, List[Assignment]]
             Grades from both semesters.
 
+        Raises
+        ------
+        RuntimeError
+            If the session is destroyed, no data can be received.
+
         """
         grade_url = self.base_url + "/sfgradebook001.w"
-        sessionp = self.get_session_params()
+        sessionp = self.session_params
         req3 = session.post(grade_url, data={
             "encses": sessionp["encses"],
             "sessionid": sessionp["sessid"]
@@ -470,14 +485,18 @@ class SkywardAPI():
         '''
 
         new_html = HTML(html=new_text)
+        if "Your session has timed out" in new_text:
+            raise RuntimeError("Session destroyed.")
         new_html.render()
 
         grades = {} # type: Dict[str, List[Assignment]]
         grades.update(self.get_semester_grades(1, new_html))
         grades.update(self.get_semester_grades(2, new_html))
+        if grades == {}:
+            raise RuntimeError("Session destroyed.")
 
         return grades
-    
+
     def get_grades_text(self) -> Dict[str, List[str]]:
         """Converts Assignments in get_grades() to strings
 
@@ -489,10 +508,20 @@ class SkywardAPI():
         """
         grades = self.get_grades()
         text_grades = {}
-        for clas, grades in grades.items():
+        for clas, class_grades in grades.items():
             str_grades = []
-            for grade in grades:
+            for grade in class_grades:
                 str_grades.append(str(grade))
             text_grades[clas] = str_grades
-        
+
         return text_grades
+
+    def get_grades_json(self) -> Dict[str, List[Dict[str, str]]]:
+        grades = self.get_grades()
+        json_grades = {} # type: Dict[str, List[Dict[str, str]]]
+        for class_name, class_grades in grades.items():
+            json_grade = []
+            for grade in class_grades:
+                json_grade.append(grade.__dict__)
+            json_grades[class_name] = json_grade
+        return json_grades
