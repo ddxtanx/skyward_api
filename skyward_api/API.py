@@ -1,9 +1,11 @@
-from requests_html import HTMLSession, HTML
+from requests_html import HTMLSession, HTML, Element
 import getpass
 import os
 from typing import Dict, List, Any
 import re
 import datetime
+
+
 
 session = HTMLSession()
 
@@ -251,6 +253,155 @@ class SkywardAPI():
             "encses": encses
         }
 
+    def get_class_grades(
+        self,
+        sm_grade: Element,
+        grid_count: int,
+        constant_options: Dict[str, str],
+        url: str,
+        headers: Dict[str, str],
+        sm_num: int
+    ) -> Dict[str, List[Assignment]]:
+        attrs = sm_grade.attrs
+        specific_request_data = {
+            "corNumId": attrs["data-cni"],
+            "gridCount": grid_count,
+            "gbId": attrs["data-gid"],
+            "stuId": attrs["data-sid"],
+            "section": attrs["data-sec"],
+            "entityId": attrs["data-eid"]
+        }
+        grade_request_data = constant_options
+        grade_request_data.update(specific_request_data)
+
+        grade_req = session.post(
+            url,
+            data=grade_request_data,
+            headers=headers,
+            params={
+                "file": "sfgradebook001.w"
+            }
+        )
+        text = grade_req.text
+
+        start_split = text.find("<![CDATA[") + len("<![CDATA[")
+        end_split = text.find("]]")
+        text_split = text[start_split : end_split + 1]
+
+        doc = HTML(html=text_split)
+
+        class_name = doc.find(".gb_heading", first=True).text
+        class_name = class_name.replace("\xa0", " ")
+
+        grades = {}
+        grades[class_name] = []
+
+        semester_info = doc.find("th", first=True)
+        date_range = semester_info.find("span", first=True).text
+        date_range = date_range.replace("(", "").replace(")", "")
+
+        sem_start_date = date_range.split(" - ")[0]
+        # Date range looks like "(START - END)" so removing ( ) and splitting
+        # gives the start date.
+
+        sem_grade = doc.find(".odd", first=True)
+        sem_grade_spl = sem_grade.text.split("\n")
+        sem_lg = sem_grade_spl[0]
+        sem_percent = sem_grade_spl[1]
+        sem_asign = Assignment(
+            "SEM{0}".format(sm_num),
+            sem_percent,
+            "100",
+            sem_lg,
+            sem_start_date
+        )
+        grades[class_name].append(sem_asign)
+
+        scope = doc.find("td")
+        style_str = "padding-right:4px"
+        scope = [
+            row
+            for row in scope
+            if "style" in row.attrs and row.attrs["style"] == style_str
+        ]
+        scope_major = scope[0]
+        scope_grades = scope[1]
+
+        list_of_grades = scope_grades.find(".even") + scope_grades.find(".odd")
+        list_of_major_grades = scope_major.find(".even") + scope_major.find(".odd")
+        assignments = [
+            assignment
+            for assignment in list_of_grades
+            if "zebra-same" not in assignment.attrs
+        ]
+
+        major_grades = [
+            grade
+            for grade in list_of_major_grades
+            if "zebra-same" in grade.attrs and grade.attrs["zebra-same"] == "true"
+        ]
+
+        for assignment in assignments:
+            assignment_info = assignment.find("td")
+            name = ""
+            date = ""
+            try:
+                date = assignment_info[0].text
+                name = assignment_info[1].text
+            except IndexError:
+                continue
+            assign = None
+            try:
+                lg = assignment_info[2].text
+                point_str = assignment_info[4].text
+                point_str_spl = point_str.split(" out of ")
+                earned = point_str_spl[0]
+                out_of = point_str_spl[1]
+                assign = Assignment(name, earned, out_of, lg, date)
+            except IndexError:
+                assign = Assignment(name, "*", "*", "*", date)
+            grades[class_name].append(assign)
+
+        for grade in major_grades:
+            grade_info = grade.find("td")
+            name = ""
+            lg = ""
+            try:
+                desc = grade_info[0].text
+                desc = desc.replace("\n", "")
+                colon_split = desc.split(":")
+                name = colon_split[0]
+                lg = colon_split[1][0]
+            except IndexError as e:
+                continue
+            try:
+                grade_data = grade_info[2].text
+                str_split = grade_data.split(" out of ")
+                earned = str_split[0]
+                out_of = str_split[1]
+                grades[class_name].append(
+                    Assignment(
+                        name,
+                        earned,
+                        out_of,
+                        lg,
+                        sem_start_date
+                    )
+                )
+            except IndexError:
+                grades[class_name].append(
+                    Assignment(
+                        name,
+                        "*",
+                        "*",
+                        "*",
+                        sem_start_date
+                    )
+                )
+
+        grades[class_name] = sorted(grades[class_name], reverse=True)
+        return grades
+
     def get_semester_grades(self, semester_num: int, page: HTML) -> Dict[str, List[Assignment]]:
         """Gets grades for a specific semester.
 
@@ -309,144 +460,19 @@ class SkywardAPI():
             "Connection": "keep-alive"
         }
         grid_count = 1
-        for sm_grade in sm_grade_buttons:
-            attrs = sm_grade.attrs
-            specific_request_data = {
-                "corNumId": attrs["data-cni"],
-                "gridCount": grid_count,
-                "gbId": attrs["data-gid"],
-                "stuId": attrs["data-sid"],
-                "section": attrs["data-sec"],
-                "entityId": attrs["data-eid"]
-            }
-            grid_count += 3
-            grade_request_data = dict(constant_options)
-            grade_request_data.update(specific_request_data)
 
-            grade_req = session.post(
-                grade_req_url,
-                data=grade_request_data,
-                headers=headers,
-                params={
-                    "file": "sfgradebook001.w"
-                }
+
+        for class_sm_grade in sm_grade_buttons:
+            grades.update(
+                self.get_class_grades(
+                    class_sm_grade,
+                    grid_count,
+                    constant_options,
+                    grade_req_url,
+                    headers,
+                    semester_num
+                )
             )
-            text = grade_req.text
-
-            start_split = text.find("<![CDATA[") + len("<![CDATA[")
-            end_split = text.find("]]")
-            text_split = text[start_split : end_split + 1]
-
-            doc = HTML(html=text_split)
-
-            class_name = doc.find(".gb_heading", first=True).text
-            class_name = class_name.replace("\xa0", " ")
-            grades[class_name] = []
-
-            semester_info = doc.find("th", first=True)
-            date_range = semester_info.find("span", first=True).text
-            date_range = date_range.replace("(", "").replace(")", "")
-
-            sem_start_date = date_range.split(" - ")[0]
-            # Date range looks like "(START - END)" so removing ( ) and splitting
-            # gives the start date.
-
-            sem_grade = doc.find(".odd", first=True)
-            sem_grade_spl = sem_grade.text.split("\n")
-            sem_lg = sem_grade_spl[0]
-            sem_percent = sem_grade_spl[1]
-            sem_asign = Assignment(
-                "SEM{0}".format(semester_num),
-                sem_percent,
-                "100",
-                sem_lg,
-                sem_start_date
-            )
-            grades[class_name].append(sem_asign)
-
-            scope = doc.find("td")
-            style_str = "padding-right:4px"
-            scope = [
-                row
-                for row in scope
-                if "style" in row.attrs and row.attrs["style"] == style_str
-            ]
-            scope_major = scope[0]
-            scope_grades = scope[1]
-
-            list_of_grades = scope_grades.find(".even") + scope_grades.find(".odd")
-            list_of_major_grades = scope_major.find(".even") + scope_major.find(".odd")
-            assignments = [
-                assignment
-                for assignment in list_of_grades
-                if "zebra-same" not in assignment.attrs
-            ]
-
-            major_grades = [
-                grade
-                for grade in list_of_major_grades
-                if "zebra-same" in grade.attrs and grade.attrs["zebra-same"] == "true"
-            ]
-
-            for assignment in assignments:
-                assignment_info = assignment.find("td")
-                name = ""
-                date = ""
-                try:
-                    date = assignment_info[0].text
-                    name = assignment_info[1].text
-                except IndexError:
-                    continue
-                assign = None
-                try:
-                    lg = assignment_info[2].text
-                    point_str = assignment_info[4].text
-                    point_str_spl = point_str.split(" out of ")
-                    earned = point_str_spl[0]
-                    out_of = point_str_spl[1]
-                    assign = Assignment(name, earned, out_of, lg, date)
-                except IndexError:
-                    assign = Assignment(name, "*", "*", "*", date)
-                grades[class_name].append(assign)
-
-            for grade in major_grades:
-                grade_info = grade.find("td")
-                name = ""
-                lg = ""
-                try:
-                    desc = grade_info[0].text
-                    desc = desc.replace("\n", "")
-                    colon_split = desc.split(":")
-                    name = colon_split[0]
-                    lg = colon_split[1][0]
-                except IndexError as e:
-                    continue
-                try:
-                    grade_data = grade_info[2].text
-                    str_split = grade_data.split(" out of ")
-                    earned = str_split[0]
-                    out_of = str_split[1]
-                    grades[class_name].append(
-                        Assignment(
-                            name,
-                            earned,
-                            out_of,
-                            lg,
-                            sem_start_date
-                        )
-                    )
-                except IndexError:
-                    grades[class_name].append(
-                        Assignment(
-                            name,
-                            "*",
-                            "*",
-                            "*",
-                            sem_start_date
-                        )
-                    )
-
-            grades[class_name] = sorted(grades[class_name], reverse=True)
 
         return grades
 
@@ -485,7 +511,7 @@ class SkywardAPI():
         '''
 
         new_html = HTML(html=new_text)
-        if "Your session has timed out" in new_text:
+        if "Your session has timed out" in new_text or "session has expired" in new_text:
             raise RuntimeError("Session destroyed.")
         new_html.render()
 
