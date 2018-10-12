@@ -1,2 +1,2 @@
-from skyward_api.API import SkywardAPI
-from skyward_api.API import Assignment
+from skyward_api.api import SkywardAPI
+from skyward_api.assignment import Assignment
