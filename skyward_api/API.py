@@ -411,5 +411,3 @@ class SkywardAPI():
             "encses": sessionp["encses"],
             "sessionid": sessionp["sessid"]
         })
-        with open("./test.html", "w") as f:
-            f.write(str(req.text))
