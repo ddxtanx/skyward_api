@@ -60,6 +60,7 @@ class SkywardAPI():
         params["password"] = password
         req = session.post(self.login_url, data=params)
         text = req.text
+        session.close()
         if "Invalid" in text:
             raise ValueError("Incorrect username or password")
         if text != "":
@@ -93,17 +94,17 @@ class SkywardAPI():
 
         req2 = session.post(ldata["new_url"], data=ldata["params"])
         page = req2.html
+        obj = {}
         try:
-            sessid = page.find("#sessionid", first=True).attrs["value"]
+            obj["sessid"] = page.find("#sessionid", first=True).attrs["value"]
 
-            encses = page.find("#encses", first=True).attrs["value"]
+            obj["encses"] = page.find("#encses", first=True).attrs["value"]
         except AttributeError:
-            return self.get_session_params()
+            obj = self.get_session_params()
+        finally:
+            session.close()
 
-        return {
-            "sessid": sessid,
-            "encses": encses
-        }
+        return obj
 
     def get_class_grades(
         self,
@@ -252,6 +253,7 @@ class SkywardAPI():
                 )
 
         grades[class_name] = sorted(grades[class_name], reverse=True)
+        session.close()
         return grades
 
     def get_semester_grades(self, semester_num: int, page: HTML) -> Dict[str, List[Assignment]]:
@@ -325,7 +327,7 @@ class SkywardAPI():
                     semester_num
                 )
             )
-
+        session.close()
         return grades
 
     def get_grades(self) -> Dict[str, List[Assignment]]:
@@ -365,14 +367,15 @@ class SkywardAPI():
         new_html = HTML(html=new_text)
         if "Your session has timed out" in new_text or "session has expired" in new_text:
             raise RuntimeError("Session destroyed.")
-        new_html.render()
+        new_html.render(keep_page=False)
 
         grades = {} # type: Dict[str, List[Assignment]]
         grades.update(self.get_semester_grades(1, new_html))
         grades.update(self.get_semester_grades(2, new_html))
         if grades == {}:
             raise RuntimeError("Session destroyed.")
-
+        session.close()
+        new_html.session.browser.close()
         return grades
 
     def get_grades_text(self) -> Dict[str, List[str]]:
@@ -411,3 +414,4 @@ class SkywardAPI():
             "encses": sessionp["encses"],
             "sessionid": sessionp["sessid"]
         })
+        session.close()

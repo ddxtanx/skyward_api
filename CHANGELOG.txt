@@ -18,3 +18,5 @@
     Add keep_alive, restructure
 1.3.2-
     Remove file creation bug
+1.3.3-
+    Add session closures
