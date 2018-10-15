@@ -24,3 +24,5 @@
     Add request function to deal with timeouts. Add docstrings.
 1.4.1-
     Remove trailing comma bug.
+1.4.2-
+    Add self to timed_request

@@ -40,6 +40,7 @@ class SkywardAPI():
         self.session_params = {}
 
     def timed_request(
+        self,
         url: str,
         data: Dict[str, str] = {},
         headers: Dict[str, str] = {},
