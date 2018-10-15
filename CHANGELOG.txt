@@ -22,3 +22,5 @@
     Add session closures
 1.4.0-
     Add request function to deal with timeouts. Add docstrings.
+1.4.1-
+    Remove trailing comma bug.

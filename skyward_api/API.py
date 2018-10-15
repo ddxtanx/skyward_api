@@ -1,4 +1,4 @@
-from requests_html import HTMLSession, HTML, Element, HTMLResponse,
+from requests_html import HTMLSession, HTML, Element, HTMLResponse
 from skyward_api.assignment import Assignment
 from skyward_api.helpers import parse_login_text, skyward_req_conf
 import requests
