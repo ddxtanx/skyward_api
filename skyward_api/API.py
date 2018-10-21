@@ -161,7 +161,11 @@ class SkywardAPI():
         self.session_params = self.get_session_params()
 
     @staticmethod
-    def from_session_data(service: str, sky_data: Dict[str, str]) -> "SkywardAPI":
+    def from_session_data(
+        service: str,
+        sky_data: Dict[str, str],
+        timeout: int = 60
+    ) -> "SkywardAPI":
         """Generates an API given a service and session data.
 
         Parameters
@@ -177,7 +181,7 @@ class SkywardAPI():
             An api for the user given the session info.
 
         """
-        api = SkywardAPI(service)
+        api = SkywardAPI(service, timeout=timeout)
         api.session_params = sky_data
         return api
 
