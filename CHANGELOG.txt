@@ -32,3 +32,5 @@
     Add get_grades_json back.
 1.5.2-
     Add timeout to from_session_data.
+1.5.3-
+    Add - to SkywardClass.
