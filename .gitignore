@@ -2,3 +2,5 @@ build
 dist
 skyward_api.egg-info
 Pipfile*
+test.py
+skyward_api/__pycache__

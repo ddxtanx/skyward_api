@@ -1,14 +1,25 @@
 from requests_html import HTMLSession, HTML, Element, HTMLResponse
 from skyward_api.assignment import Assignment
-from skyward_api.helpers import parse_login_text, skyward_req_conf
+from skyward_api.helpers import parse_login_text, skyward_req_conf, default_login_headers
+from skyward_api.skyward_class import SkywardClass
 import requests
 import getpass
 import os
 from typing import Dict, List, Any
 import re
 import time
+import asyncio
+loop = asyncio.get_event_loop()
 
-session = HTMLSession()
+session = HTMLSession(mock_browser=False)
+
+class SkywardError(RuntimeError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+class SessionError(SkywardError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
 
 class SkywardAPI():
     """Class for Skyward data retrieval.
@@ -33,7 +44,6 @@ class SkywardAPI():
 
     """
     def __init__(self, service: str, timeout: int = 60) -> None:
-        self.tries = 0
         self.base_url = "https://skyward.iscorp.com/scripts/wsisa.dll/WService={0}".format(service)
         self.login_url = self.base_url + "/skyporthttp.w"
         self.timeout = timeout
@@ -70,28 +80,30 @@ class SkywardAPI():
 
         Raises
         -------
-        RuntimeError
+        SkywardError
             Skyward unable to connect.
 
         """
         start_time = time.time()
+        return_data = None
         while True:
             try:
-                data = session.request(
+                return_data = session.request(
                     method,
                     url,
                     data=data,
                     headers=headers,
                     params=params
                 )
-                session.close()
-                return data
+                break
             except requests.exceptions.ConnectionError:
                 if time.time() > start_time + self.timeout:
-                    raise RuntimeError('Unable to make request after {} seconds of ConnectionErrors'.format(self.timeout))
+                    raise SkywardError('Request to Skyward failed.')
                 else:
                     time.sleep(1)
-
+            finally:
+                session.close()
+        return return_data
 
     def login(self, username: str, password: str) -> Dict[str, Any]:
         """Logs into Skyward and retreives session data.
@@ -112,7 +124,7 @@ class SkywardAPI():
         -------
         ValueError
             Incorrect username or password.
-        RuntimeError
+        SkywardError
             Skyward acting weird and not returning data.
 
         """
@@ -121,15 +133,18 @@ class SkywardAPI():
         params["login"] = username
         params["password"] = password
         req = self.timed_request(self.login_url, data=params)
-        text = req.text
+        text = req.html.text
         if "Invalid" in text:
             raise ValueError("Incorrect username or password")
+        times = 0
+        while text == "" and times <= 5:
+            req = self.timed_request(self.login_url, data=params, headers=default_login_headers)
+            text = req.html.text
+            times += 1
         if text != "":
             return parse_login_text(self.base_url, text)
-        elif self.tries < 5:
-            return self.login(username, password)
         else:
-            raise RuntimeError("For some reason, Skyward is returning nothing at login. Sorry try again!")
+            raise SkywardError("Skyward returning no login data.")
 
     def setup(self, username: str, password: str) -> None:
         """Sets up api session data via username and password.
@@ -434,7 +449,7 @@ class SkywardAPI():
             )
         return grades
 
-    def get_grades(self) -> Dict[str, List[Assignment]]:
+    def get_grades(self) -> List[SkywardClass]:
         """Gets grades from both semesters.
 
         Returns
@@ -444,7 +459,7 @@ class SkywardAPI():
 
         Raises
         ------
-        RuntimeError
+        SessionError
             If the session is destroyed, no data can be received.
 
         """
@@ -470,16 +485,20 @@ class SkywardAPI():
 
         new_html = HTML(html=new_text)
         if "Your session has timed out" in new_text or "session has expired" in new_text:
-            raise RuntimeError("Session destroyed.")
+            raise SessionError("Session destroyed. Session timed out.")
         new_html.render(keep_page=False)
 
         grades = {} # type: Dict[str, List[Assignment]]
         grades.update(self.get_semester_grades(1, new_html))
         grades.update(self.get_semester_grades(2, new_html))
         if grades == {}:
-            raise RuntimeError("Session destroyed.")
-        new_html.session.browser.close()
-        return grades
+            raise SessionError("Session destroyed. No grades returned.")
+        loop.create_task(new_html.session.browser.close())
+
+        classes = [] # type: List[SkywardClass]
+        for class_name, class_grades in grades.items():
+            classes.append(SkywardClass(class_name, class_grades))
+        return classes
 
     def get_grades_text(self) -> Dict[str, List[str]]:
         """Converts Assignments in get_grades() to strings
@@ -491,32 +510,9 @@ class SkywardAPI():
 
         """
         grades = self.get_grades()
-        text_grades = {}
-        for clas, class_grades in grades.items():
-            str_grades = []
-            for grade in class_grades:
-                str_grades.append(str(grade))
-            text_grades[clas] = str_grades
-
-        return text_grades
-
-    def get_grades_json(self) -> Dict[str, List[Dict[str, str]]]:
-        """Converts Assignments in get_grades() to json objects.
-
-        Returns
-        -------
-        Dict[str, List[Dict[str, str]]]
-            Grades (as json objects) from both semesters.
-
-        """
-        grades = self.get_grades()
-        json_grades = {} # type: Dict[str, List[Dict[str, str]]]
-        for class_name, class_grades in grades.items():
-            json_grade = []
-            for grade in class_grades:
-                json_grade.append(grade.__dict__)
-            json_grades[class_name] = json_grade
-        return json_grades
+        str_grades = {}
+        for sky_class in grades:
+            str_grades[sky_class.name] = sky_class.grades
 
     def keep_alive(self) -> None:
         """Issues a keep-alive request for the session.

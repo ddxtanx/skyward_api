@@ -26,3 +26,5 @@
     Remove trailing comma bug.
 1.4.2-
     Add self to timed_request
+1.5.0-
+    Fix bugs. Add SkywardClass. Better async usage.
