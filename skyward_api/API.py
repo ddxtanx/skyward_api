@@ -512,7 +512,31 @@ class SkywardAPI():
         grades = self.get_grades()
         str_grades = {}
         for sky_class in grades:
-            str_grades[sky_class.name] = sky_class.grades
+            str_grades[sky_class.name] = sky_class.grades_to_text()
+        return str_grades
+
+    def get_grades_json(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Converts Assignments in get_grades() to strings
+
+        Returns
+        -------
+        Dict[str, List[str]]
+            Grades (as a string) from both semesters.
+
+        """
+        grades = self.get_grades()
+        json_grades = {}
+        for sky_class in grades:
+            class_grades = sky_class.grades
+            class_grades_json = list(
+                map(
+                    lambda grade_obj: grade_obj.__dict__,
+                    class_grades
+                )
+            )
+            json_grades[sky_class.name] = class_grades_json
+
+        return json_grades
 
     def keep_alive(self) -> None:
         """Issues a keep-alive request for the session.

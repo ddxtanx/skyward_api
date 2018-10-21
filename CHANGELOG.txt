@@ -28,3 +28,5 @@
     Add self to timed_request
 1.5.0-
     Fix bugs. Add SkywardClass. Better async usage.
+1.5.1-
+    Add get_grades_json back.
