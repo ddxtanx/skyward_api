@@ -34,3 +34,5 @@
     Add timeout to from_session_data.
 1.5.3-
     Add - to SkywardClass.
+1.5.4-
+    Remove asyncio and add process killing.

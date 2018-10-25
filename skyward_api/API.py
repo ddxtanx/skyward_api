@@ -8,8 +8,15 @@ import os
 from typing import Dict, List, Any
 import re
 import time
-import asyncio
-loop = asyncio.get_event_loop()
+import signal, psutil
+def kill_child_processes(parent_pid, sig=signal.SIGTERM):
+    try:
+      parent = psutil.Process(parent_pid)
+    except psutil.NoSuchProcess:
+      return
+    children = parent.children(recursive=True)
+    for process in children:
+      process.send_signal(sig)
 
 session = HTMLSession(mock_browser=False)
 
@@ -43,12 +50,15 @@ class SkywardAPI():
         Parameters for session.
 
     """
-    def __init__(self, service: str, timeout: int = 60) -> None:
+    def __init__(
+        self,
+        service: str,
+        timeout: int = 60,
+        ) -> None:
         self.base_url = "https://skyward.iscorp.com/scripts/wsisa.dll/WService={0}".format(service)
         self.login_url = self.base_url + "/skyporthttp.w"
         self.timeout = timeout
         self.session_params = {}
-
     def timed_request(
         self,
         url: str,
@@ -497,8 +507,9 @@ class SkywardAPI():
         grades.update(self.get_semester_grades(2, new_html))
         if grades == {}:
             raise SessionError("Session destroyed. No grades returned.")
-        loop.create_task(new_html.session.browser.close())
-
+        new_html.session.close()
+        new_html = None
+        kill_child_processes(os.getpid())
         classes = [] # type: List[SkywardClass]
         for class_name, class_grades in grades.items():
             classes.append(SkywardClass(class_name, class_grades))
