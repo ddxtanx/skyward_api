@@ -53,12 +53,13 @@ class SkywardAPI():
     def __init__(
         self,
         service: str,
-        timeout: int = 60,
-        ) -> None:
+        timeout: int = 60
+    ) -> None:
         self.base_url = "https://skyward.iscorp.com/scripts/wsisa.dll/WService={0}".format(service)
         self.login_url = self.base_url + "/skyporthttp.w"
         self.timeout = timeout
         self.session_params = {}
+
     def timed_request(
         self,
         url: str,
@@ -91,7 +92,7 @@ class SkywardAPI():
         Raises
         -------
         SkywardError
-            Skyward unable to connect.
+            Unable to connect to skyward.
 
         """
         start_time = time.time()
@@ -135,7 +136,7 @@ class SkywardAPI():
         ValueError
             Incorrect username or password.
         SkywardError
-            Skyward acting weird and not returning data.
+            Unable to connect to Skyward.
 
         """
         params = skyward_req_conf
@@ -157,7 +158,7 @@ class SkywardAPI():
             raise SkywardError("Skyward returning no login data.")
 
     def setup(self, username: str, password: str) -> None:
-        """Sets up api session data via username and password.
+        """Sets up api session data using username and password.
 
         Parameters
         ----------
@@ -169,6 +170,43 @@ class SkywardAPI():
         data = self.login(username, password)
         self.login_data = data
         self.session_params = self.get_session_params()
+
+    @staticmethod
+    def from_username_password(
+        username: str,
+        password: str,
+        service: str,
+        timeout: int = 60
+    ) -> "SkywardAPI":
+        """Returns a logged-in SkywardAPI object using username and password provided.
+
+        Parameters
+        ----------
+        username : str
+            Skyward username.
+        password : str
+            Skyward password.
+        service : str
+            Skyward service.
+        timeout : int
+            Timeout of requests made to Skyward (the default is 60).
+
+        Returns
+        -------
+        SkywardAPI
+            API object logged in with supplied credentials.
+
+        Raises
+        -------
+        ValueError
+            Incorrect username and password (from setup).
+        SkywardError
+            Unable to connect to Skyward (from setup).
+
+        """
+        api = SkywardAPI(service, timeout=timeout)
+        api.setup(username, password)
+        return api
 
     @staticmethod
     def from_session_data(

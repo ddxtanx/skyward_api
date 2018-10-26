@@ -36,3 +36,5 @@
     Add - to SkywardClass.
 1.5.4-
     Remove asyncio and add process killing.
+1.5.5-
+    Add more docstrings and add from_username_password methods to SkywardAPI.
