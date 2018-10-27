@@ -38,3 +38,6 @@
     Remove asyncio and add process killing.
 1.5.5-
     Add more docstrings and add from_username_password methods to SkywardAPI.
+1.5.6-
+    Add psutils to requirements, remove unnecessary params from requests. Add
+    docstrings.

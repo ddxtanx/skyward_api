@@ -1,6 +1,6 @@
 from requests_html import HTMLSession, HTML, Element, HTMLResponse
 from skyward_api.assignment import Assignment
-from skyward_api.helpers import parse_login_text, skyward_req_conf, default_login_headers
+from skyward_api.helpers import parse_login_text, skyward_req_conf
 from skyward_api.skyward_class import SkywardClass
 import requests
 import getpass
@@ -58,7 +58,7 @@ class SkywardAPI():
         self.base_url = "https://skyward.iscorp.com/scripts/wsisa.dll/WService={0}".format(service)
         self.login_url = self.base_url + "/skyporthttp.w"
         self.timeout = timeout
-        self.session_params = {}
+        self.session_params = {} # type: Dict[str, str]
 
     def timed_request(
         self,
@@ -149,7 +149,7 @@ class SkywardAPI():
             raise ValueError("Incorrect username or password")
         times = 0
         while text == "" and times <= 5:
-            req = self.timed_request(self.login_url, data=params, headers=default_login_headers)
+            req = self.timed_request(self.login_url, data=params)
             text = req.html.text
             times += 1
         if text != "":
@@ -262,9 +262,8 @@ class SkywardAPI():
         grid_count: int,
         constant_options: Dict[str, str],
         url: str,
-        headers: Dict[str, str],
         sm_num: int
-    ) -> Dict[str, List[Assignment]]:
+    ) -> SkywardClass:
         """Gets class grades given elements and request options.
 
         Parameters
@@ -277,21 +276,18 @@ class SkywardAPI():
             Constant options provided to ensure valid request.
         url : str
             Request url.
-        headers : Dict[str, str]
-            Request headers.
         sm_num : int
             Semester number in question.
 
         Returns
         -------
-        Dict[str, List[Assignment]]
+        SkywardClass
             Grades from a class.
 
         """
         attrs = sm_grade.attrs
         specific_request_data = {
             "corNumId": attrs["data-cni"],
-            "gridCount": grid_count,
             "gbId": attrs["data-gid"],
             "stuId": attrs["data-sid"],
             "section": attrs["data-sec"],
@@ -303,7 +299,6 @@ class SkywardAPI():
         grade_req = self.timed_request(
             url,
             data=grade_request_data,
-            headers=headers,
             params={
                 "file": "sfgradebook001.w"
             }
@@ -319,8 +314,7 @@ class SkywardAPI():
         class_name = doc.find(".gb_heading", first=True).text
         class_name = class_name.replace("\xa0", " ")
 
-        grades = {}
-        grades[class_name] = []
+        sky_class = SkywardClass(class_name, [])
 
         semester_info = doc.find("th", first=True)
         date_range = semester_info.find("span", first=True).text
@@ -341,7 +335,7 @@ class SkywardAPI():
             sem_lg,
             sem_start_date
         )
-        grades[class_name].append(sem_asign)
+        sky_class.add_grade(sem_asign)
 
         scope = doc.find("td")
         style_str = "padding-right:4px"
@@ -386,7 +380,7 @@ class SkywardAPI():
                 assign = Assignment(name, earned, out_of, lg, date)
             except IndexError:
                 assign = Assignment(name, "*", "*", "*", date)
-            grades[class_name].append(assign)
+            sky_class.add_grade(assign)
 
         for grade in major_grades:
             grade_info = grade.find("td")
@@ -405,7 +399,7 @@ class SkywardAPI():
                 str_split = grade_data.split(" out of ")
                 earned = str_split[0]
                 out_of = str_split[1]
-                grades[class_name].append(
+                sky_class.add_grade(
                     Assignment(
                         name,
                         earned,
@@ -415,7 +409,7 @@ class SkywardAPI():
                     )
                 )
             except IndexError:
-                grades[class_name].append(
+                sky_class.add_grade(
                     Assignment(
                         name,
                         "*",
@@ -425,10 +419,10 @@ class SkywardAPI():
                     )
                 )
 
-        grades[class_name] = sorted(grades[class_name], reverse=True)
-        return grades
+        sky_class.sort_grades_by_period()
+        return sky_class
 
-    def get_semester_grades(self, semester_num: int, page: HTML) -> Dict[str, List[Assignment]]:
+    def get_semester_grades(self, semester_num: int, page: HTML) -> List[SkywardClass]:
         """Gets grades for a specific semester.
 
         Parameters
@@ -440,14 +434,13 @@ class SkywardAPI():
 
         Returns
         -------
-        Dict[str, List[Assignment]]
-            Dictionary of class grades.
+        List[SkywardClass]
+            List of class grades.
 
         """
-        grades = {} # type: Dict[str, List[Assignment]]
+        grades = [] # type: List[SkywardClass]
 
         sessionp = self.session_params
-        refresh_id = page.find("#reloadValue", first=True).attrs["value"]
         grade_buttons = page.find("#showGradeInfo")
 
         sm_grade_buttons = [
@@ -461,41 +454,23 @@ class SkywardAPI():
         dwd = page.text[dwd_start : dwd_start+5]
 
         constant_options = {
-            "requestId": refresh_id,
             "encses": sessionp["encses"],
             "sessionid": sessionp["sessid"],
-            "wfaacl": sessionp["sessid"].split("\x15")[1],
             "ishttp": "true",
-            "track": "0",
-            "isEoc": "no",
             "fromHttp": "yes",
-            "dwd": dwd,
-            "dialogLevel": "1",
             "action": "viewGradeInfoDialog",
-            "subjectId": "",
-            "javascript.filesAdded": "jquery.1.8.2.js,qsfmain001.css,sfgradebook.css,qsfmain001.min.js,sfgradebook.js,sfprint001.js",
             "bucket": "SEM {0}".format(semester_num)
-        }
-        headers = {
-            "X-Requested-With": "XMLHttpRequest",
-            "Referrer": grade_req_url,
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:62.0) Gecko/20100101 Firefox/62.0",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive"
         }
         grid_count = 1
 
 
         for class_sm_grade in sm_grade_buttons:
-            grades.update(
+            grades.append(
                 self.get_class_grades(
                     class_sm_grade,
                     grid_count,
                     constant_options,
                     grade_req_url,
-                    headers,
                     semester_num
                 )
             )
@@ -506,7 +481,7 @@ class SkywardAPI():
 
         Returns
         -------
-        Dict[str, List[Assignment]]
+        List[SkywardClass]
             Grades from both semesters.
 
         Raises
@@ -540,18 +515,15 @@ class SkywardAPI():
             raise SessionError("Session destroyed. Session timed out.")
         new_html.render(keep_page=False)
 
-        grades = {} # type: Dict[str, List[Assignment]]
-        grades.update(self.get_semester_grades(1, new_html))
-        grades.update(self.get_semester_grades(2, new_html))
+        grades = self.get_semester_grades(1, new_html)
+        grades += self.get_semester_grades(2, new_html)
         if grades == {}:
             raise SessionError("Session destroyed. No grades returned.")
         new_html.session.close()
         new_html = None
         kill_child_processes(os.getpid())
-        classes = [] # type: List[SkywardClass]
-        for class_name, class_grades in grades.items():
-            classes.append(SkywardClass(class_name, class_grades))
-        return classes
+
+        return grades
 
     def get_grades_text(self) -> Dict[str, List[str]]:
         """Converts Assignments in get_grades() to strings
@@ -565,7 +537,7 @@ class SkywardAPI():
         grades = self.get_grades()
         str_grades = {}
         for sky_class in grades:
-            str_grades[sky_class.name] = sky_class.grades_to_text()
+            str_grades[sky_class.skyward_title()] = sky_class.grades_to_text()
         return str_grades
 
     def get_grades_json(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -587,7 +559,7 @@ class SkywardAPI():
                     class_grades
                 )
             )
-            json_grades[sky_class.name] = class_grades_json
+            json_grades[sky_class.skyward_title()] = class_grades_json
 
         return json_grades
 
