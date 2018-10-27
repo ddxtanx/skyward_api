@@ -41,3 +41,5 @@
 1.5.6-
     Add psutils to requirements, remove unnecessary params from requests. Add
     docstrings.
+1.5.7-
+    Bugfix.

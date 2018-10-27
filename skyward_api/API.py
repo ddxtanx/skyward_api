@@ -419,7 +419,7 @@ class SkywardAPI():
                     )
                 )
 
-        sky_class.sort_grades_by_period()
+        sky_class.sort_grades_by_date()
         return sky_class
 
     def get_semester_grades(self, semester_num: int, page: HTML) -> List[SkywardClass]:

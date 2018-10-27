@@ -1,6 +1,6 @@
 {
     "name": "skyward_api",
-    "version": "1.5.6",
+    "version": "1.5.7",
     "author": "Garrett Credi",
     "author_email": "gcc@ameritech.net",
     "description": "Python API for Skyward",
