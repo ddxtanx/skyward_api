@@ -256,7 +256,7 @@ class SkywardAPI():
                 }
             }
         """)
-        os.system("killall Chromium")
+        os.system("pkill Chromium")
         api.session_params.update(other_data)
 
         return api
@@ -533,7 +533,7 @@ class SkywardAPI():
         grades += self.get_semester_grades(2, new_html)
         if grades == {}:
             raise SessionError("Session destroyed. No grades returned.")
-        os.system("killall Chromium")
+        os.system("pkill Chromium")
         return grades
 
     def get_grades_text(self) -> Dict[str, List[str]]:
