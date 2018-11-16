@@ -20,6 +20,23 @@ def kill_child_processes(parent_pid, sig=signal.SIGTERM):
 
 session = HTMLSession(mock_browser=False)
 
+def edit_srcs(page: HTMLResponse, url: str) -> HTML:
+    new_text = page.text
+    new_text = new_text.replace(
+        "src='",
+        "src='{0}/".format(url)
+    ).replace(
+        "href='",
+        "href='{0}/".format(url)
+    )
+    '''
+        Replacing values here to make sure that all requests
+        are being made to the skyward site and not the local
+        computer.
+    '''
+
+    new_html = HTML(html=new_text)
+    return new_html
 class SkywardError(RuntimeError):
     def __init__(self, message: str) -> None:
         super().__init__(message)
@@ -231,6 +248,23 @@ class SkywardAPI():
         """
         api = SkywardAPI(service, timeout=timeout)
         api.session_params = sky_data
+        grade_url = api.base_url + "/sfhome01.w"
+        sessionp = api.session_params
+        req3 = api.timed_request(grade_url, data={
+            "encses": sessionp["encses"],
+            "sessionid": sessionp["sessid"]
+        })
+        new_html = edit_srcs(req3, api.base_url)
+        other_data = new_html.render(keep_page=False, script="""
+            () => {
+                return {
+                    dwd: sff.getValue('dwd'),
+                    nameid: sff.getValue('nameid'),
+                    wfaacl: sff.getValue('wfaacl'),
+                }
+            }
+        """)
+        api.session_params.update(other_data)
         return api
 
     def get_session_params(self) -> Dict[str, str]:
@@ -253,7 +287,9 @@ class SkywardAPI():
             obj["encses"] = page.find("#encses", first=True).attrs["value"]
         except AttributeError:
             obj = self.get_session_params()
-
+        obj["dwd"] = ldata["params"]["dwd"]
+        obj["nameid"] = ldata["params"]["nameid"]
+        obj["wfaacl"] = ldata["params"]["wfaacl"]
         return obj
 
     def get_class_grades(
@@ -450,9 +486,6 @@ class SkywardAPI():
         ]
         grade_req_url = "{0}/httploader.p".format(self.base_url)
 
-        dwd_start = page.text.find("sff.sv('dwd', '") + len("sff.sv('dwd', '")
-        dwd = page.text[dwd_start : dwd_start+5]
-
         constant_options = {
             "encses": sessionp["encses"],
             "sessionid": sessionp["sessid"],
@@ -496,24 +529,11 @@ class SkywardAPI():
             "encses": sessionp["encses"],
             "sessionid": sessionp["sessid"]
         })
-        new_text = req3.text
-        new_text = new_text.replace(
-            "src='",
-            "src='{0}/".format(self.base_url)
-        ).replace(
-            "href='",
-            "href='{0}/".format(self.base_url)
-        )
-        '''
-            Replacing values here to make sure that all requests
-            are being made to the skyward site and not the local
-            computer.
-        '''
-
-        new_html = HTML(html=new_text)
-        if "Your session has timed out" in new_text or "session has expired" in new_text:
+        new_html = edit_srcs(req3.html, self.base_url)
+        if "Your session has timed out" in new_html.text or "session has expired" in new_html.text:
             raise SessionError("Session destroyed. Session timed out.")
-        new_html.render(keep_page=False)
+        ret_data = new_html.render(keep_page=False)
+
 
         grades = self.get_semester_grades(1, new_html)
         grades += self.get_semester_grades(2, new_html)
@@ -521,8 +541,6 @@ class SkywardAPI():
             raise SessionError("Session destroyed. No grades returned.")
         new_html.session.close()
         new_html = None
-        kill_child_processes(os.getpid())
-
         return grades
 
     def get_grades_text(self) -> Dict[str, List[str]]:
@@ -567,9 +585,13 @@ class SkywardAPI():
         """Issues a keep-alive request for the session.
 
         """
-        grade_url = self.base_url + "/sfgradebook001.w"
+        grade_url = self.base_url + "/qsuprhttp000.w?"
         sessionp = self.session_params
         req = self.timed_request(grade_url, data={
-            "encses": sessionp["encses"],
-            "sessionid": sessionp["sessid"]
-        })
+            "dwd": sessionp["dwd"],
+            "idleTimeout": 300000,
+            "myIdleSeconds": 60,
+            "nameid": sessionp["nameid"],
+            "requestAction": "mySession",
+            "wfaacl": sessionp["wfaacl"]
+        }, method = "get")
