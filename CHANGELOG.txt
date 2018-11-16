@@ -43,4 +43,7 @@
     docstrings.
 1.5.7-
     Bugfix.
-1.6.0- Change session_params, update keep_alive to mimic Skyward's keep alive
+1.6.0-
+    Change session_params, update keep_alive to mimic Skyward's keep alive
+1.6.1-
+    Kill chromiums more effectively.

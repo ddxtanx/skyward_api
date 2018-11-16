@@ -8,17 +8,9 @@ import os
 from typing import Dict, List, Any
 import re
 import time
-import signal, psutil
-def kill_child_processes(parent_pid, sig=signal.SIGTERM):
-    try:
-      parent = psutil.Process(parent_pid)
-    except psutil.NoSuchProcess:
-      return
-    children = parent.children(recursive=True)
-    for process in children:
-      process.send_signal(sig)
+import lxml
 
-session = HTMLSession(mock_browser=False)
+session = HTMLSession()
 
 def edit_srcs(page: HTMLResponse, url: str) -> HTML:
     new_text = page.text
@@ -129,8 +121,6 @@ class SkywardAPI():
                     raise SkywardError('Request to Skyward failed.')
                 else:
                     time.sleep(1)
-            finally:
-                session.close()
         return return_data
 
     def login(self, username: str, password: str) -> Dict[str, Any]:
@@ -170,7 +160,8 @@ class SkywardAPI():
             text = req.html.text
             times += 1
         if text != "":
-            return parse_login_text(self.base_url, text)
+            data = parse_login_text(self.base_url, text)
+            return data
         else:
             raise SkywardError("Skyward returning no login data.")
 
@@ -187,6 +178,7 @@ class SkywardAPI():
         data = self.login(username, password)
         self.login_data = data
         self.session_params = self.get_session_params()
+
 
     @staticmethod
     def from_username_password(
@@ -255,7 +247,7 @@ class SkywardAPI():
             "sessionid": sessionp["sessid"]
         })
         new_html = edit_srcs(req3, api.base_url)
-        other_data = new_html.render(keep_page=False, script="""
+        other_data = new_html.render(reload=False, script="""
             () => {
                 return {
                     dwd: sff.getValue('dwd'),
@@ -264,7 +256,9 @@ class SkywardAPI():
                 }
             }
         """)
+        os.system("killall Chromium")
         api.session_params.update(other_data)
+
         return api
 
     def get_session_params(self) -> Dict[str, str]:
@@ -529,18 +523,17 @@ class SkywardAPI():
             "encses": sessionp["encses"],
             "sessionid": sessionp["sessid"]
         })
-        new_html = edit_srcs(req3.html, self.base_url)
+        new_html = edit_srcs(req3, self.base_url)
         if "Your session has timed out" in new_html.text or "session has expired" in new_html.text:
             raise SessionError("Session destroyed. Session timed out.")
-        ret_data = new_html.render(keep_page=False)
+        ret_data = new_html.render()
 
 
         grades = self.get_semester_grades(1, new_html)
         grades += self.get_semester_grades(2, new_html)
         if grades == {}:
             raise SessionError("Session destroyed. No grades returned.")
-        new_html.session.close()
-        new_html = None
+        os.system("killall Chromium")
         return grades
 
     def get_grades_text(self) -> Dict[str, List[str]]:
