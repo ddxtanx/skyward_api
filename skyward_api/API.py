@@ -1,4 +1,4 @@
-from requests_html import HTMLSession, HTML, Element, HTMLResponse
+from requests_html import HTMLSession, HTML, Element, HTMLResponse, MaxRetries
 from skyward_api.assignment import Assignment
 from skyward_api.helpers import parse_login_text, skyward_req_conf
 from skyward_api.skyward_class import SkywardClass
@@ -9,26 +9,8 @@ from typing import Dict, List, Any
 import re
 import time
 import lxml
+import psutil
 
-session = HTMLSession()
-
-def edit_srcs(page: HTMLResponse, url: str) -> HTML:
-    new_text = page.text
-    new_text = new_text.replace(
-        "src='",
-        "src='{0}/".format(url)
-    ).replace(
-        "href='",
-        "href='{0}/".format(url)
-    )
-    '''
-        Replacing values here to make sure that all requests
-        are being made to the skyward site and not the local
-        computer.
-    '''
-
-    new_html = HTML(html=new_text)
-    return new_html
 class SkywardError(RuntimeError):
     def __init__(self, message: str) -> None:
         super().__init__(message)
@@ -68,7 +50,43 @@ class SkywardAPI():
         self.login_url = self.base_url + "/skyporthttp.w"
         self.timeout = timeout
         self.session_params = {} # type: Dict[str, str]
+        self.session = HTMLSession()
 
+    def edit_srcs(self, page: HTMLResponse) -> HTML:
+        """Edits urls in page to request from Skyward and not local computer.
+
+        Parameters
+        ----------
+        page : HTMLResponse
+            HTMLResponse from a request to skyward.
+
+        Returns
+        -------
+        HTML
+            HTML object with urls pointing to Skyward website.
+
+        Side Effects
+        ------------
+        Attached the HTML object to self.session. If rendering, make sure to close
+        session so chromiums do not pile up.
+
+        """
+        new_text = page.text
+        new_text = new_text.replace(
+            "src='",
+            "src='{0}/".format(self.base_url)
+        ).replace(
+            "href='",
+            "href='{0}/".format(self.base_url)
+        )
+        '''
+            Replacing values here to make sure that all requests
+            are being made to the skyward site and not the local
+            computer.
+        '''
+
+        new_html = HTML(html=new_text, session=self.session)
+        return new_html
     def timed_request(
         self,
         url: str,
@@ -103,12 +121,15 @@ class SkywardAPI():
         SkywardError
             Unable to connect to skyward.
 
+        Side Effects
+        ------------
+        Closes self.session and regenerates it.
         """
         start_time = time.time()
         return_data = None
         while True:
             try:
-                return_data = session.request(
+                return_data = self.session.request(
                     method,
                     url,
                     data=data,
@@ -121,6 +142,9 @@ class SkywardAPI():
                     raise SkywardError('Request to Skyward failed.')
                 else:
                     time.sleep(1)
+            finally:
+                self.session.close()
+                self.session = HTMLSession()
         return return_data
 
     def login(self, username: str, password: str) -> Dict[str, Any]:
@@ -159,11 +183,15 @@ class SkywardAPI():
             req = self.timed_request(self.login_url, data=params)
             text = req.html.text
             times += 1
-        if text != "":
-            data = parse_login_text(self.base_url, text)
-            return data
-        else:
+            """
+            Sometimes a request does not go through on the first try.
+            Looping to make sure the api catches this, if it occurs.
+            """
+        if text == "":
             raise SkywardError("Skyward returning no login data.")
+
+        data = parse_login_text(self.base_url, text)
+        return data
 
     def setup(self, username: str, password: str) -> None:
         """Sets up api session data using username and password.
@@ -178,7 +206,6 @@ class SkywardAPI():
         data = self.login(username, password)
         self.login_data = data
         self.session_params = self.get_session_params()
-
 
     @staticmethod
     def from_username_password(
@@ -235,7 +262,16 @@ class SkywardAPI():
         Returns
         -------
         SkywardAPI
-            An api for the user given the session info.
+            An api for the user, given the session info.
+
+        Raises
+        -------
+        SessionError
+            If session credentials are revoked by Skyward, error is raised.
+
+        Side Effects
+        ------------
+        Closes and regenerates self.session.
 
         """
         api = SkywardAPI(service, timeout=timeout)
@@ -246,17 +282,21 @@ class SkywardAPI():
             "encses": sessionp["encses"],
             "sessionid": sessionp["sessid"]
         })
-        new_html = edit_srcs(req3, api.base_url)
-        other_data = new_html.render(reload=False, script="""
-            () => {
-                return {
-                    dwd: sff.getValue('dwd'),
-                    nameid: sff.getValue('nameid'),
-                    wfaacl: sff.getValue('wfaacl'),
+        new_html = api.edit_srcs(req3)
+        try:
+            other_data = new_html.render(script="""
+                () => {
+                    return {
+                        dwd: sff.getValue('dwd'),
+                        nameid: sff.getValue('nameid'),
+                        wfaacl: sff.getValue('wfaacl'),
+                    }
                 }
-            }
-        """)
-        os.system("pkill Chromium")
+            """, retries=2, timeout=2.5, keep_page=False)
+            api.session.close()
+            api.session = HTMLSession()
+        except MaxRetries:
+            raise SessionError("Session destroyed by Skyward.")
         api.session_params.update(other_data)
 
         return api
@@ -272,8 +312,8 @@ class SkywardAPI():
         """
         ldata = self.login_data
 
-        req2 = self.timed_request(ldata["new_url"], data=ldata["params"])
-        page = req2.html
+        req = self.timed_request(ldata["new_url"], data=ldata["params"])
+        page = req.html
         obj = {}
         try:
             obj["sessid"] = page.find("#sessionid", first=True).attrs["value"]
@@ -281,6 +321,7 @@ class SkywardAPI():
             obj["encses"] = page.find("#encses", first=True).attrs["value"]
         except AttributeError:
             obj = self.get_session_params()
+            #Again, sometimes this doesn't work on the first try.
         obj["dwd"] = ldata["params"]["dwd"]
         obj["nameid"] = ldata["params"]["nameid"]
         obj["wfaacl"] = ldata["params"]["wfaacl"]
@@ -519,21 +560,21 @@ class SkywardAPI():
         """
         grade_url = self.base_url + "/sfgradebook001.w"
         sessionp = self.session_params
-        req3 = self.timed_request(grade_url, data={
+        req1 = self.timed_request(grade_url, data={
             "encses": sessionp["encses"],
             "sessionid": sessionp["sessid"]
         })
-        new_html = edit_srcs(req3, self.base_url)
+        new_html = self.edit_srcs(req1)
         if "Your session has timed out" in new_html.text or "session has expired" in new_html.text:
             raise SessionError("Session destroyed. Session timed out.")
         ret_data = new_html.render()
-
 
         grades = self.get_semester_grades(1, new_html)
         grades += self.get_semester_grades(2, new_html)
         if grades == {}:
             raise SessionError("Session destroyed. No grades returned.")
-        os.system("pkill Chromium")
+        self.session.close()
+        self.session = HTMLSession()
         return grades
 
     def get_grades_text(self) -> Dict[str, List[str]]:

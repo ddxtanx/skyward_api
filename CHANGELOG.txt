@@ -49,3 +49,5 @@
     Kill chromiums more effectively.
 1.6.2-
     Switch killall to pkill.
+1.7.0-
+    Kill Chromium for good. Good riddance.
